@@ -27,6 +27,7 @@ async def create_story(
     return StoryResponse(
         **db_story.__dict__,
         author_name=current_user.pseudonym or current_user.full_name,
+        author_avatar_url=current_user.avatar_url,
         likes_count=0,
         bookmarks_count=0
     )
@@ -63,6 +64,7 @@ async def list_stories(
             StoryResponse(
                 **story.__dict__,
                 author_name=story.author.pseudonym or story.author.full_name,
+                author_avatar_url=story.author.avatar_url,
                 likes_count=len(story.likes),
                 bookmarks_count=len(story.bookmarks)
             )
@@ -72,6 +74,85 @@ async def list_stories(
         page=skip // limit + 1,
         per_page=limit
     )
+
+@router.get("/continue-reading", response_model=List[StoryResponse])
+async def get_continue_reading(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    query = select(Story).join(Bookmark).options(
+        joinedload(Story.author),
+        joinedload(Story.likes),
+        joinedload(Story.bookmarks)
+    ).filter(
+        Bookmark.user_id == current_user.id,
+        Bookmark.last_read_chapter != None
+    ).order_by(desc(Bookmark.created_at)).limit(5)
+
+    result = await db.execute(query)
+    stories = result.unique().scalars().all()
+
+    return [
+        StoryResponse(
+            **story.__dict__,
+            author_name=story.author.pseudonym or story.author.full_name,
+            author_avatar_url=story.author.avatar_url,
+            likes_count=len(story.likes),
+            bookmarks_count=len(story.bookmarks)
+        )
+        for story in stories
+    ]
+
+@router.get("/popular", response_model=List[StoryResponse])
+async def get_popular_stories(
+    db: AsyncSession = Depends(get_db)
+):
+    one_week_ago = datetime.utcnow() - timedelta(days=7)
+    query = select(Story).options(
+        joinedload(Story.author),
+        joinedload(Story.likes),
+        joinedload(Story.bookmarks)
+    ).filter(
+        Story.created_at >= one_week_ago
+    ).order_by(desc(Story.views)).limit(10)
+
+    result = await db.execute(query)
+    stories = result.unique().scalars().all()
+
+    return [
+        StoryResponse(
+            **story.__dict__,
+            author_name=story.author.pseudonym or story.author.full_name,
+            author_avatar_url=story.author.avatar_url,
+            likes_count=len(story.likes),
+            bookmarks_count=len(story.bookmarks)
+        )
+        for story in stories
+    ]
+
+@router.get("/my-stories", response_model=List[StoryResponse])
+async def get_my_stories(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(Story).options(
+        joinedload(Story.likes),
+        joinedload(Story.bookmarks)
+    ).filter(Story.author_id == current_user.id).order_by(desc(Story.created_at))
+
+    result = await db.execute(query)
+    stories = result.unique().scalars().all()
+
+    return [
+        StoryResponse(
+            **story.__dict__,
+            author_name=current_user.pseudonym or current_user.full_name,
+            author_avatar_url=current_user.avatar_url,
+            likes_count=len(story.likes),
+            bookmarks_count=len(story.bookmarks)
+        )
+        for story in stories
+    ]
 
 @router.get("/{story_id}", response_model=StoryResponse)
 async def get_story(
@@ -95,6 +176,7 @@ async def get_story(
     return StoryResponse(
         **story.__dict__,
         author_name=story.author.pseudonym or story.author.full_name,
+        author_avatar_url=story.author.avatar_url,
         likes_count=len(story.likes),
         bookmarks_count=len(story.bookmarks)
     )
@@ -126,6 +208,7 @@ async def update_story(
     return StoryResponse(
         **db_story.__dict__,
         author_name=current_user.pseudonym or current_user.full_name,
+        author_avatar_url=current_user.avatar_url,
         likes_count=len(db_story.likes),
         bookmarks_count=len(db_story.bookmarks)
     )
@@ -145,76 +228,3 @@ async def delete_story(
 
     await db.delete(db_story)
     await db.commit()
-
-@router.get("/continue-reading", response_model=List[StoryResponse])
-async def get_continue_reading(
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
-):
-    query = select(Story).join(Story.bookmarks).options(
-        joinedload(Story.author),
-        joinedload(Story.likes),
-        joinedload(Story.bookmarks)
-    ).filter(
-        Story.bookmarks.any(
-            (Bookmark.user_id == current_user.id) &
-            (Bookmark.last_read_chapter != None)
-        )
-    ).order_by(desc(Bookmark.updated_at)).limit(5)
-
-    result = await db.execute(query)
-    stories = result.unique().scalars().all()
-
-    return [
-        StoryResponse(
-            id=story.id,
-            title=story.title,
-            summary=story.summary,
-            genre=story.genre,
-            cover_image_url=story.cover_image_url,
-            author_id=story.author_id,
-            created_at=story.created_at,
-            updated_at=story.updated_at,
-            author_name=story.author.pseudonym or story.author.full_name,
-            likes_count=len(story.likes),
-            bookmarks_count=len(story.bookmarks),
-            rating=story.rating,
-            views=story.views
-        )
-        for story in stories
-    ]
-
-@router.get("/popular", response_model=List[StoryResponse])
-async def get_popular_stories(
-    db: AsyncSession = Depends(get_db)
-):
-    one_week_ago = datetime.now() - timedelta(days=7)
-    query = select(Story).options(
-        joinedload(Story.author),
-        joinedload(Story.likes),
-        joinedload(Story.bookmarks)
-    ).filter(
-        Story.created_at >= one_week_ago
-    ).order_by(desc(Story.views)).limit(10)
-
-    result = await db.execute(query)
-    stories = result.unique().scalars().all()
-
-    return [
-        StoryResponse(
-            id=story.id,
-            title=story.title,
-            summary=story.summary,
-            genre=story.genre,
-            cover_image_url=story.cover_image_url,
-            author_id=story.author_id,
-            created_at=story.created_at,
-            updated_at=story.updated_at,
-            author_name=story.author.pseudonym or story.author.full_name,
-            likes_count=len(story.likes),
-            bookmarks_count=len(story.bookmarks),
-            rating=story.rating,
-            views=story.views
-        )
-        for story in stories
-    ]

@@ -23,6 +23,7 @@ class StoryResponse(StoryBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     author_name: str
+    author_avatar_url: Optional[str] = None
     likes_count: int
     bookmarks_count: int
     rating: float
