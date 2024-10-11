@@ -29,7 +29,10 @@ async def create_story(
         author_name=current_user.pseudonym or current_user.full_name,
         author_avatar_url=current_user.avatar_url,
         likes_count=0,
-        bookmarks_count=0
+        bookmarks_count=0,
+        is_liked=False,
+        is_following_author=False,
+        follower_count=0
     )
 
 @router.get("/", response_model=StoryListResponse)
@@ -67,6 +70,15 @@ async def list_stories(
     user_follows = await db.execute(select(UserFollow).filter(UserFollow.follower_id == current_user.id))
     user_follows = set(follow.followed_id for follow in user_follows.scalars().all())
 
+    # Get follower counts for all authors
+    author_ids = [story.author_id for story in stories]
+    follower_counts = await db.execute(
+        select(UserFollow.followed_id, func.count(UserFollow.follower_id))
+        .where(UserFollow.followed_id.in_(author_ids))
+        .group_by(UserFollow.followed_id)
+    )
+    follower_counts = dict(follower_counts.fetchall())
+
     return StoryListResponse(
         stories=[
             StoryResponse(
@@ -76,7 +88,8 @@ async def list_stories(
                 likes_count=len(story.likes),
                 bookmarks_count=len(story.bookmarks),
                 is_liked=story.id in user_likes,
-                is_following_author=story.author_id in user_follows
+                is_following_author=story.author_id in user_follows,
+                follower_count=follower_counts.get(story.author_id, 0)
             )
             for story in stories
         ],
@@ -109,6 +122,15 @@ async def get_continue_reading(
     user_follows = await db.execute(select(UserFollow).filter(UserFollow.follower_id == current_user.id))
     user_follows = set(follow.followed_id for follow in user_follows.scalars().all())
 
+    # Get follower counts for all authors
+    author_ids = [story.author_id for story in stories]
+    follower_counts = await db.execute(
+        select(UserFollow.followed_id, func.count(UserFollow.follower_id))
+        .where(UserFollow.followed_id.in_(author_ids))
+        .group_by(UserFollow.followed_id)
+    )
+    follower_counts = dict(follower_counts.fetchall())
+
     return [
         StoryResponse(
             **story.__dict__,
@@ -117,7 +139,8 @@ async def get_continue_reading(
             likes_count=len(story.likes),
             bookmarks_count=len(story.bookmarks),
             is_liked=story.id in user_likes,
-            is_following_author=story.author_id in user_follows
+            is_following_author=story.author_id in user_follows,
+            follower_count=follower_counts.get(story.author_id, 0)
         )
         for story in stories
     ]
@@ -158,6 +181,13 @@ async def get_story(
         )
     ) > 0
 
+    # Get the follower count for the author
+    follower_count = await db.scalar(
+        select(func.count()).select_from(UserFollow).filter(
+            UserFollow.followed_id == story.author_id
+        )
+    )
+
     return StoryResponse(
         **story.__dict__,
         author_name=story.author.pseudonym or story.author.full_name,
@@ -165,12 +195,13 @@ async def get_story(
         likes_count=len(story.likes),
         bookmarks_count=len(story.bookmarks),
         is_liked=is_liked,
-        is_following_author=is_following_author
+        is_following_author=is_following_author,
+        follower_count=follower_count
     )
-
 
 @router.get("/popular", response_model=List[StoryResponse])
 async def get_popular_stories(
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     one_week_ago = datetime.utcnow() - timedelta(days=7)
@@ -185,13 +216,32 @@ async def get_popular_stories(
     result = await db.execute(query)
     stories = result.unique().scalars().all()
 
+    # Get likes and follows for the current user
+    user_likes = await db.execute(select(Like).filter(Like.user_id == current_user.id))
+    user_likes = set(like.story_id for like in user_likes.scalars().all())
+
+    user_follows = await db.execute(select(UserFollow).filter(UserFollow.follower_id == current_user.id))
+    user_follows = set(follow.followed_id for follow in user_follows.scalars().all())
+
+    # Get follower counts for all authors
+    author_ids = [story.author_id for story in stories]
+    follower_counts = await db.execute(
+        select(UserFollow.followed_id, func.count(UserFollow.follower_id))
+        .where(UserFollow.followed_id.in_(author_ids))
+        .group_by(UserFollow.followed_id)
+    )
+    follower_counts = dict(follower_counts.fetchall())
+
     return [
         StoryResponse(
             **story.__dict__,
             author_name=story.author.pseudonym or story.author.full_name,
             author_avatar_url=story.author.avatar_url,
             likes_count=len(story.likes),
-            bookmarks_count=len(story.bookmarks)
+            bookmarks_count=len(story.bookmarks),
+            is_liked=story.id in user_likes,
+            is_following_author=story.author_id in user_follows,
+            follower_count=follower_counts.get(story.author_id, 0)
         )
         for story in stories
     ]
@@ -209,13 +259,23 @@ async def get_my_stories(
     result = await db.execute(query)
     stories = result.unique().scalars().all()
 
+    # Get follower count for the current user
+    follower_count = await db.scalar(
+        select(func.count()).select_from(UserFollow).filter(
+            UserFollow.followed_id == current_user.id
+        )
+    )
+
     return [
         StoryResponse(
             **story.__dict__,
             author_name=current_user.pseudonym or current_user.full_name,
             author_avatar_url=current_user.avatar_url,
             likes_count=len(story.likes),
-            bookmarks_count=len(story.bookmarks)
+            bookmarks_count=len(story.bookmarks),
+            is_liked=False,  # The user can't like their own stories
+            is_following_author=False,  # The user can't follow themselves
+            follower_count=follower_count
         )
         for story in stories
     ]
@@ -244,12 +304,22 @@ async def update_story(
     await db.commit()
     await db.refresh(db_story)
 
+    # Get follower count for the author
+    follower_count = await db.scalar(
+        select(func.count()).select_from(UserFollow).filter(
+            UserFollow.followed_id == current_user.id
+        )
+    )
+
     return StoryResponse(
         **db_story.__dict__,
         author_name=current_user.pseudonym or current_user.full_name,
         author_avatar_url=current_user.avatar_url,
         likes_count=len(db_story.likes),
-        bookmarks_count=len(db_story.bookmarks)
+        bookmarks_count=len(db_story.bookmarks),
+        is_liked=False,  # The user can't like their own stories
+        is_following_author=False,  # The user can't follow themselves
+        follower_count=follower_count
     )
 
 @router.delete("/{story_id}", status_code=204)
