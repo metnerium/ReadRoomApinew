@@ -16,9 +16,9 @@ router = APIRouter()
 
 @router.post("/", response_model=StoryResponse)
 async def create_story(
-        story: StoryCreate,
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+    story: StoryCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     db_story = Story(**story.dict(), author_id=current_user.id)
     db.add(db_story)
@@ -38,13 +38,13 @@ async def create_story(
 
 @router.get("/", response_model=StoryListResponse)
 async def list_stories(
-        skip: int = Query(0, ge=0),
-        limit: int = Query(20, ge=1, le=100),
-        genre: Optional[Genre] = None,
-        search: Optional[str] = None,
-        sort_by: str = Query("rating", regex="^(rating|views|created_at)$"),
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    genre: Optional[Genre] = None,
+    search: Optional[str] = None,
+    sort_by: str = Query("rating", regex="^(rating|views|created_at)$"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     query = select(Story).options(
         joinedload(Story.author),
@@ -105,8 +105,8 @@ async def list_stories(
 
 @router.get("/continue-reading", response_model=List[StoryResponse])
 async def get_continue_reading(
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     query = select(Story).join(Bookmark).options(
         joinedload(Story.author),
@@ -156,9 +156,9 @@ async def get_continue_reading(
 
 @router.get("/{story_id}", response_model=StoryResponse)
 async def get_story(
-        story_id: int,
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     query = select(Story).options(
         joinedload(Story.author),
@@ -302,14 +302,13 @@ async def get_my_stories(
         )
         for story in stories
     ]
-# ... (предыдущий код остается без изменений)
 
 @router.put("/{story_id}", response_model=StoryResponse)
 async def update_story(
-        story_id: int,
-        story_update: StoryUpdate,
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+    story_id: int,
+    story_update: StoryUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     query = select(Story).options(
         joinedload(Story.author),
@@ -349,9 +348,9 @@ async def update_story(
 
 @router.delete("/{story_id}", status_code=204)
 async def delete_story(
-        story_id: int,
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+    story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     query = select(Story).filter(Story.id == story_id, Story.author_id == current_user.id)
     result = await db.execute(query)
