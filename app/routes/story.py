@@ -272,58 +272,6 @@ async def get_popular_stories(
     ]
 
 
-@router.get("/my-stories", response_model=List[StoryResponse])
-async def get_my_stories(
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
-):
-    try:
-        query = select(Story).options(
-            joinedload(Story.likes),
-            joinedload(Story.bookmarks)
-        ).filter(Story.author_id == current_user.id).order_by(desc(Story.created_at))
-        result = await db.execute(query)
-        stories = result.unique().scalars().all()
-
-        # Fetch follower count
-        follower_count = await db.scalar(
-            select(func.count()).select_from(UserFollow).filter(
-                UserFollow.followed_id == current_user.id
-            )
-        )
-
-        story_responses = []
-        for story in stories:
-            try:
-                story_response = StoryResponse(
-                    id=story.id,
-                    title=story.title,
-                    summary=story.summary or "",
-                    genre=story.genre,
-                    cover_image_url=story.cover_image_url or "",
-                    author_id=story.author_id,
-                    created_at=story.created_at,
-                    updated_at=story.updated_at,
-                    author_name=current_user.pseudonym or current_user.full_name,
-                    author_avatar_url=current_user.avatar_url or "",
-                    likes_count=len(story.likes),
-                    bookmarks_count=len(story.bookmarks),
-                    rating=float(story.rating) if story.rating is not None else 0.0,
-                    views=story.views,
-                    is_liked=False,
-                    is_bookmarked=False,
-                    is_following_author=False,
-                    follower_count=follower_count or 0
-                )
-                story_responses.append(story_response)
-            except Exception as e:
-                logger.error(f"Error processing story {story.id}: {str(e)}")
-
-        return story_responses
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="An error occurred while fetching stories")
-
-
 @router.put("/{story_id}", response_model=StoryResponse)
 async def update_story(
     story_id: int,
@@ -382,3 +330,4 @@ async def delete_story(
 
     await db.delete(db_story)
     await db.commit()
+
