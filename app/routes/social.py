@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
@@ -11,7 +12,7 @@ from app.schemas.social import (
     CommentCreate, CommentUpdate, CommentResponse,
     LikeCreate, LikeInDB,
     BookmarkCreate, BookmarkUpdate, BookmarkInDB,
-    UserFollowCreate, UserFollowResponse
+    UserFollowCreate, UserFollowResponse, LikeResponse
 )
 from dependencies import get_current_user, get_db
 
@@ -90,7 +91,7 @@ async def delete_comment(
         await db.delete(db_comment)
 
 # Likes
-@router.post("/likes", response_model=LikeInDB)
+@router.post("/likes", response_model=LikeResponse)
 async def create_like(
     like: LikeCreate,
     current_user: User = Depends(get_current_user),
@@ -108,10 +109,21 @@ async def create_like(
 
     db_like = Like(**like.dict(), user_id=current_user.id)
     db.add(db_like)
-    await db.flush()
+    await db.commit()
     await db.refresh(db_like)
 
-    return db_like
+    # Update likes count
+    likes_count = await db.scalar(
+        select(func.count()).where(Like.story_id == like.story_id)
+    )
+
+    return LikeResponse(
+        id=db_like.id,
+        user_id=db_like.user_id,
+        story_id=db_like.story_id,
+        created_at=db_like.created_at,
+        likes_count=likes_count
+    )
 
 @router.delete("/likes/{story_id}", status_code=204)
 async def delete_like(
@@ -127,7 +139,8 @@ async def delete_like(
         raise HTTPException(status_code=404, detail="Like not found")
 
     await db.delete(db_like)
-    await db.flush()
+    await db.commit()
+
 
 # Bookmarks
 @router.post("/bookmarks", response_model=BookmarkInDB)
@@ -214,13 +227,22 @@ async def follow_user(
 
     db_follow = UserFollow(follower_id=current_user.id, followed_id=follow.followed_id)
     db.add(db_follow)
-    await db.flush()
+    await db.commit()
     await db.refresh(db_follow)
 
+    # Get updated follower count
+    follower_count = await db.scalar(
+        select(func.count()).where(UserFollow.followed_id == follow.followed_id)
+    )
+
     return UserFollowResponse(
-        **db_follow.__dict__,
+        id=db_follow.id,
+        follower_id=db_follow.follower_id,
+        followed_id=db_follow.followed_id,
+        created_at=db_follow.created_at,
         follower_name=current_user.pseudonym or current_user.full_name,
-        followed_name=followed_user.pseudonym or followed_user.full_name
+        followed_name=followed_user.pseudonym or followed_user.full_name,
+        follower_count=follower_count
     )
 
 @router.delete("/unfollow/{user_id}", status_code=204)
@@ -240,7 +262,7 @@ async def unfollow_user(
         raise HTTPException(status_code=404, detail="You're not following this user")
 
     await db.delete(db_follow)
-    await db.flush()
+    await db.commit()
 
 @router.get("/followers/{user_id}", response_model=List[UserFollowResponse])
 async def get_followers(
@@ -261,7 +283,8 @@ async def get_followers(
             followed_id=follow.followed_id,
             created_at=follow.created_at,
             follower_name=follow.follower.pseudonym or follow.follower.full_name,
-            followed_name=follow.followed.pseudonym or follow.followed.full_name
+            followed_name=follow.followed.pseudonym or follow.followed.full_name,
+            follower_count=len(followers)
         )
         for follow in followers
     ]
@@ -285,7 +308,8 @@ async def get_following(
             followed_id=follow.followed_id,
             created_at=follow.created_at,
             follower_name=follow.follower.pseudonym or follow.follower.full_name,
-            followed_name=follow.followed.pseudonym or follow.followed.full_name
+            followed_name=follow.followed.pseudonym or follow.followed.full_name,
+            follower_count=len(following)
         )
         for follow in following
     ]

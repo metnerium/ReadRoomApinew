@@ -6,7 +6,7 @@ from sqlalchemy import desc, func
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-from app.models.social import Bookmark
+from app.models.social import Bookmark, Like, UserFollow
 from app.models.story import Story, Genre
 from app.models.user import User
 from app.schemas.story import StoryCreate, StoryUpdate, StoryResponse, StoryListResponse
@@ -39,6 +39,7 @@ async def list_stories(
         genre: Optional[Genre] = None,
         search: Optional[str] = None,
         sort_by: str = Query("rating", regex="^(rating|views|created_at)$"),
+        current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
     query = select(Story).options(
@@ -59,6 +60,13 @@ async def list_stories(
     result = await db.execute(query)
     stories = result.unique().scalars().all()
 
+    # Get likes and follows for the current user
+    user_likes = await db.execute(select(Like).filter(Like.user_id == current_user.id))
+    user_likes = set(like.story_id for like in user_likes.scalars().all())
+
+    user_follows = await db.execute(select(UserFollow).filter(UserFollow.follower_id == current_user.id))
+    user_follows = set(follow.followed_id for follow in user_follows.scalars().all())
+
     return StoryListResponse(
         stories=[
             StoryResponse(
@@ -66,7 +74,9 @@ async def list_stories(
                 author_name=story.author.pseudonym or story.author.full_name,
                 author_avatar_url=story.author.avatar_url,
                 likes_count=len(story.likes),
-                bookmarks_count=len(story.bookmarks)
+                bookmarks_count=len(story.bookmarks),
+                is_liked=story.id in user_likes,
+                is_following_author=story.author_id in user_follows
             )
             for story in stories
         ],
@@ -92,16 +102,72 @@ async def get_continue_reading(
     result = await db.execute(query)
     stories = result.unique().scalars().all()
 
+    # Get likes and follows for the current user
+    user_likes = await db.execute(select(Like).filter(Like.user_id == current_user.id))
+    user_likes = set(like.story_id for like in user_likes.scalars().all())
+
+    user_follows = await db.execute(select(UserFollow).filter(UserFollow.follower_id == current_user.id))
+    user_follows = set(follow.followed_id for follow in user_follows.scalars().all())
+
     return [
         StoryResponse(
             **story.__dict__,
             author_name=story.author.pseudonym or story.author.full_name,
             author_avatar_url=story.author.avatar_url,
             likes_count=len(story.likes),
-            bookmarks_count=len(story.bookmarks)
+            bookmarks_count=len(story.bookmarks),
+            is_liked=story.id in user_likes,
+            is_following_author=story.author_id in user_follows
         )
         for story in stories
     ]
+
+@router.get("/{story_id}", response_model=StoryResponse)
+async def get_story(
+        story_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    query = select(Story).options(
+        joinedload(Story.author),
+        joinedload(Story.likes),
+        joinedload(Story.bookmarks)
+    ).filter(Story.id == story_id)
+    result = await db.execute(query)
+    story = result.unique().scalar_one_or_none()
+
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    story.views += 1
+    await db.commit()
+
+    # Check if the current user has liked the story
+    is_liked = await db.scalar(
+        select(func.count()).select_from(Like).filter(
+            Like.user_id == current_user.id,
+            Like.story_id == story_id
+        )
+    ) > 0
+
+    # Check if the current user is following the author
+    is_following_author = await db.scalar(
+        select(func.count()).select_from(UserFollow).filter(
+            UserFollow.follower_id == current_user.id,
+            UserFollow.followed_id == story.author_id
+        )
+    ) > 0
+
+    return StoryResponse(
+        **story.__dict__,
+        author_name=story.author.pseudonym or story.author.full_name,
+        author_avatar_url=story.author.avatar_url,
+        likes_count=len(story.likes),
+        bookmarks_count=len(story.bookmarks),
+        is_liked=is_liked,
+        is_following_author=is_following_author
+    )
+
 
 @router.get("/popular", response_model=List[StoryResponse])
 async def get_popular_stories(
@@ -153,33 +219,6 @@ async def get_my_stories(
         )
         for story in stories
     ]
-
-@router.get("/{story_id}", response_model=StoryResponse)
-async def get_story(
-        story_id: int,
-        db: AsyncSession = Depends(get_db)
-):
-    query = select(Story).options(
-        joinedload(Story.author),
-        joinedload(Story.likes),
-        joinedload(Story.bookmarks)
-    ).filter(Story.id == story_id)
-    result = await db.execute(query)
-    story = result.unique().scalar_one_or_none()
-
-    if not story:
-        raise HTTPException(status_code=404, detail="Story not found")
-
-    story.views += 1
-    await db.commit()
-
-    return StoryResponse(
-        **story.__dict__,
-        author_name=story.author.pseudonym or story.author.full_name,
-        author_avatar_url=story.author.avatar_url,
-        likes_count=len(story.likes),
-        bookmarks_count=len(story.bookmarks)
-    )
 
 @router.put("/{story_id}", response_model=StoryResponse)
 async def update_story(

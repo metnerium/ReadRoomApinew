@@ -61,6 +61,18 @@ class UserFollowInDB(UserFollowCreate):
     class Config:
         from_attributes = True
 
-class UserFollowResponse(UserFollowInDB):
+class LikeResponse(BaseModel):
+    id: int
+    user_id: int
+    story_id: int
+    created_at: datetime
+    likes_count: int
+
+class UserFollowResponse(BaseModel):
+    id: int
+    follower_id: int
+    followed_id: int
+    created_at: datetime
     follower_name: str
     followed_name: str
+    follower_count: int
