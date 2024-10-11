@@ -8,7 +8,7 @@ from sqlalchemy.orm import joinedload
 
 from app.models.user import User, UserRole
 from app.models.story import Story
-from app.models.social import UserFollow
+from app.models.social import UserFollow, Like
 from app.schemas.user import UserCreate, UserUpdate, UserInDB, UserProfile, Token
 from app.schemas.story import StoryResponse
 from app.utils.security import get_password_hash, create_access_token, get_current_user
@@ -106,22 +106,45 @@ async def get_authors(skip: int = 0, limit: int = 20, db: AsyncSession = Depends
 
 @router.get("/bookmarks", response_model=List[StoryResponse])
 async def get_bookmarked_stories(
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    query = select(Story).join(Story.bookmarks).filter(
-        Story.bookmarks.any(user_id=current_user.id)
-    ).options(joinedload(Story.author))
+    query = select(Story).join(Story.bookmarks).options(
+        joinedload(Story.author),
+        joinedload(Story.likes),
+        joinedload(Story.bookmarks)
+    ).filter(Story.bookmarks.any(user_id=current_user.id))
 
     result = await db.execute(query)
     stories = result.unique().scalars().all()
+
+    # Get likes and follows for the current user
+    user_likes = await db.execute(select(Like).filter(Like.user_id == current_user.id))
+    user_likes = set(like.story_id for like in user_likes.scalars().all())
+
+    user_follows = await db.execute(select(UserFollow).filter(UserFollow.follower_id == current_user.id))
+    user_follows = set(follow.followed_id for follow in user_follows.scalars().all())
+
+    # Get follower counts for all authors
+    author_ids = [story.author_id for story in stories]
+    follower_counts = await db.execute(
+        select(UserFollow.followed_id, func.count(UserFollow.follower_id))
+        .where(UserFollow.followed_id.in_(author_ids))
+        .group_by(UserFollow.followed_id)
+    )
+    follower_counts = dict(follower_counts.fetchall())
 
     return [
         StoryResponse(
             **story.__dict__,
             author_name=story.author.pseudonym or story.author.full_name,
+            author_avatar_url=story.author.avatar_url,
             likes_count=len(story.likes),
-            bookmarks_count=len(story.bookmarks)
+            bookmarks_count=len(story.bookmarks),
+            is_liked=story.id in user_likes,
+            is_bookmarked=True,  # The story is bookmarked since it's in the bookmarks list
+            is_following_author=story.author_id in user_follows,
+            follower_count=follower_counts.get(story.author_id, 0)
         )
         for story in stories
     ]
