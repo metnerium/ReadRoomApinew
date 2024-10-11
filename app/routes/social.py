@@ -1,18 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func
 from typing import List
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload
 
 from app.models.social import Comment, Like, Bookmark, UserFollow
 from app.models.user import User
 from app.models.story import Story
 from app.schemas.social import (
     CommentCreate, CommentUpdate, CommentResponse,
-    LikeCreate, LikeInDB,
-    BookmarkCreate, BookmarkUpdate, BookmarkInDB,
-    UserFollowCreate, UserFollowResponse, LikeResponse
+    LikeCreate, LikeResponse,
+    BookmarkCreate, BookmarkUpdate, BookmarkResponse,
+    UserFollowCreate, UserFollowResponse
 )
 from dependencies import get_current_user, get_db
 
@@ -25,15 +25,14 @@ async def create_comment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    async with db.begin():
-        story = await db.get(Story, comment.story_id)
-        if not story:
-            raise HTTPException(status_code=404, detail="Story not found")
+    story = await db.get(Story, comment.story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
 
-        db_comment = Comment(**comment.dict(), user_id=current_user.id)
-        db.add(db_comment)
-        await db.flush()
-        await db.refresh(db_comment)
+    db_comment = Comment(**comment.dict(), user_id=current_user.id)
+    db.add(db_comment)
+    await db.commit()
+    await db.refresh(db_comment)
 
     return CommentResponse(
         **db_comment.__dict__,
@@ -41,10 +40,15 @@ async def create_comment(
     )
 
 @router.get("/comments/{story_id}", response_model=List[CommentResponse])
-async def list_comments(story_id: int, db: AsyncSession = Depends(get_db)):
-    query = select(Comment).filter(Comment.story_id == story_id).options(
-        selectinload(Comment.user)
-    ).order_by(Comment.created_at.desc())
+async def list_comments(
+    story_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(Comment).options(joinedload(Comment.user)).filter(Comment.story_id == story_id)
+    query = query.order_by(Comment.created_at.desc()).offset(skip).limit(limit)
+
     result = await db.execute(query)
     comments = result.unique().scalars().all()
 
@@ -62,15 +66,18 @@ async def update_comment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    async with db.begin():
-        db_comment = await db.get(Comment, comment_id)
-        if not db_comment or db_comment.user_id != current_user.id:
-            raise HTTPException(status_code=404, detail="Comment not found or you're not the author")
+    query = select(Comment).filter(Comment.id == comment_id, Comment.user_id == current_user.id)
+    result = await db.execute(query)
+    db_comment = result.scalar_one_or_none()
 
-        for key, value in comment_update.dict().items():
-            setattr(db_comment, key, value)
-        await db.flush()
-        await db.refresh(db_comment)
+    if not db_comment:
+        raise HTTPException(status_code=404, detail="Comment not found or you're not the author")
+
+    for field, value in comment_update.dict(exclude_unset=True).items():
+        setattr(db_comment, field, value)
+
+    await db.commit()
+    await db.refresh(db_comment)
 
     return CommentResponse(
         **db_comment.__dict__,
@@ -83,12 +90,15 @@ async def delete_comment(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    async with db.begin():
-        db_comment = await db.get(Comment, comment_id)
-        if not db_comment or db_comment.user_id != current_user.id:
-            raise HTTPException(status_code=404, detail="Comment not found or you're not the author")
+    query = select(Comment).filter(Comment.id == comment_id, Comment.user_id == current_user.id)
+    result = await db.execute(query)
+    db_comment = result.scalar_one_or_none()
 
-        await db.delete(db_comment)
+    if not db_comment:
+        raise HTTPException(status_code=404, detail="Comment not found or you're not the author")
+
+    await db.delete(db_comment)
+    await db.commit()
 
 # Likes
 @router.post("/likes", response_model=LikeResponse)
@@ -107,12 +117,11 @@ async def create_like(
     if existing_like.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="You've already liked this story")
 
-    db_like = Like(**like.dict(), user_id=current_user.id)
+    db_like = Like(user_id=current_user.id, story_id=like.story_id)
     db.add(db_like)
     await db.commit()
     await db.refresh(db_like)
 
-    # Update likes count
     likes_count = await db.scalar(
         select(func.count()).where(Like.story_id == like.story_id)
     )
@@ -131,19 +140,18 @@ async def delete_like(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    db_like = await db.execute(
-        select(Like).filter(Like.user_id == current_user.id, Like.story_id == story_id)
-    )
-    db_like = db_like.scalar_one_or_none()
+    query = select(Like).filter(Like.user_id == current_user.id, Like.story_id == story_id)
+    result = await db.execute(query)
+    db_like = result.scalar_one_or_none()
+
     if not db_like:
         raise HTTPException(status_code=404, detail="Like not found")
 
     await db.delete(db_like)
     await db.commit()
 
-
 # Bookmarks
-@router.post("/bookmarks", response_model=BookmarkInDB)
+@router.post("/bookmarks", response_model=BookmarkResponse)
 async def create_bookmark(
     bookmark: BookmarkCreate,
     current_user: User = Depends(get_current_user),
@@ -159,32 +167,54 @@ async def create_bookmark(
     if existing_bookmark.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="You've already bookmarked this story")
 
-    db_bookmark = Bookmark(**bookmark.dict(), user_id=current_user.id)
+    db_bookmark = Bookmark(user_id=current_user.id, story_id=bookmark.story_id, last_read_chapter=bookmark.last_read_chapter)
     db.add(db_bookmark)
-    await db.flush()
+    await db.commit()
     await db.refresh(db_bookmark)
 
-    return db_bookmark
-@router.put("/bookmarks/{story_id}", response_model=BookmarkInDB)
+    bookmarks_count = await db.scalar(
+        select(func.count()).where(Bookmark.story_id == bookmark.story_id)
+    )
+
+    return BookmarkResponse(
+        id=db_bookmark.id,
+        user_id=db_bookmark.user_id,
+        story_id=db_bookmark.story_id,
+        created_at=db_bookmark.created_at,
+        last_read_chapter=db_bookmark.last_read_chapter,
+        bookmarks_count=bookmarks_count
+    )
+
+@router.put("/bookmarks/{story_id}", response_model=BookmarkResponse)
 async def update_bookmark(
     story_id: int,
     bookmark_update: BookmarkUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    db_bookmark = await db.execute(
-        select(Bookmark).filter(Bookmark.user_id == current_user.id, Bookmark.story_id == story_id)
-    )
-    db_bookmark = db_bookmark.scalar_one_or_none()
+    query = select(Bookmark).filter(Bookmark.user_id == current_user.id, Bookmark.story_id == story_id)
+    result = await db.execute(query)
+    db_bookmark = result.scalar_one_or_none()
+
     if not db_bookmark:
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
-    for key, value in bookmark_update.dict().items():
-        setattr(db_bookmark, key, value)
-    await db.flush()
+    db_bookmark.last_read_chapter = bookmark_update.last_read_chapter
+    await db.commit()
     await db.refresh(db_bookmark)
 
-    return db_bookmark
+    bookmarks_count = await db.scalar(
+        select(func.count()).where(Bookmark.story_id == story_id)
+    )
+
+    return BookmarkResponse(
+        id=db_bookmark.id,
+        user_id=db_bookmark.user_id,
+        story_id=db_bookmark.story_id,
+        created_at=db_bookmark.created_at,
+        last_read_chapter=db_bookmark.last_read_chapter,
+        bookmarks_count=bookmarks_count
+    )
 
 @router.delete("/bookmarks/{story_id}", status_code=204)
 async def delete_bookmark(
@@ -192,15 +222,15 @@ async def delete_bookmark(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    db_bookmark = await db.execute(
-        select(Bookmark).filter(Bookmark.user_id == current_user.id, Bookmark.story_id == story_id)
-    )
-    db_bookmark = db_bookmark.scalar_one_or_none()
+    query = select(Bookmark).filter(Bookmark.user_id == current_user.id, Bookmark.story_id == story_id)
+    result = await db.execute(query)
+    db_bookmark = result.scalar_one_or_none()
+
     if not db_bookmark:
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
     await db.delete(db_bookmark)
-    await db.flush()
+    await db.commit()
 
 # User Follow
 @router.post("/follow", response_model=UserFollowResponse)
@@ -230,7 +260,6 @@ async def follow_user(
     await db.commit()
     await db.refresh(db_follow)
 
-    # Get updated follower count
     follower_count = await db.scalar(
         select(func.count()).where(UserFollow.followed_id == follow.followed_id)
     )
@@ -251,13 +280,13 @@ async def unfollow_user(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    db_follow = await db.execute(
-        select(UserFollow).filter(
-            UserFollow.follower_id == current_user.id,
-            UserFollow.followed_id == user_id
-        )
+    query = select(UserFollow).filter(
+        UserFollow.follower_id == current_user.id,
+        UserFollow.followed_id == user_id
     )
-    db_follow = db_follow.scalar_one_or_none()
+    result = await db.execute(query)
+    db_follow = result.scalar_one_or_none()
+
     if not db_follow:
         raise HTTPException(status_code=404, detail="You're not following this user")
 
@@ -267,14 +296,22 @@ async def unfollow_user(
 @router.get("/followers/{user_id}", response_model=List[UserFollowResponse])
 async def get_followers(
     user_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(UserFollow).filter(UserFollow.followed_id == user_id).options(
-        selectinload(UserFollow.follower),
-        selectinload(UserFollow.followed)
-    )
+    query = select(UserFollow).options(
+        joinedload(UserFollow.follower),
+        joinedload(UserFollow.followed)
+    ).filter(UserFollow.followed_id == user_id)
+    query = query.order_by(UserFollow.created_at.desc()).offset(skip).limit(limit)
+
     result = await db.execute(query)
     followers = result.unique().scalars().all()
+
+    follower_count = await db.scalar(
+        select(func.count()).where(UserFollow.followed_id == user_id)
+    )
 
     return [
         UserFollowResponse(
@@ -284,7 +321,7 @@ async def get_followers(
             created_at=follow.created_at,
             follower_name=follow.follower.pseudonym or follow.follower.full_name,
             followed_name=follow.followed.pseudonym or follow.followed.full_name,
-            follower_count=len(followers)
+            follower_count=follower_count
         )
         for follow in followers
     ]
@@ -292,12 +329,16 @@ async def get_followers(
 @router.get("/following/{user_id}", response_model=List[UserFollowResponse])
 async def get_following(
     user_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(UserFollow).filter(UserFollow.follower_id == user_id).options(
-        selectinload(UserFollow.follower),
-        selectinload(UserFollow.followed)
-    )
+    query = select(UserFollow).options(
+        joinedload(UserFollow.follower),
+        joinedload(UserFollow.followed)
+    ).filter(UserFollow.follower_id == user_id)
+    query = query.order_by(UserFollow.created_at.desc()).offset(skip).limit(limit)
+
     result = await db.execute(query)
     following = result.unique().scalars().all()
 
@@ -309,7 +350,9 @@ async def get_following(
             created_at=follow.created_at,
             follower_name=follow.follower.pseudonym or follow.follower.full_name,
             followed_name=follow.followed.pseudonym or follow.followed.full_name,
-            follower_count=len(following)
+            follower_count=await db.scalar(
+                select(func.count()).where(UserFollow.followed_id == follow.followed_id)
+            )
         )
         for follow in following
     ]

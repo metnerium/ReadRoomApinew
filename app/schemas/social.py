@@ -8,29 +8,29 @@ class CommentBase(BaseModel):
 class CommentCreate(CommentBase):
     story_id: int
 
-class CommentUpdate(BaseModel):
-    content: str
+class CommentUpdate(CommentBase):
+    pass
 
-class CommentInDB(CommentBase):
+class CommentResponse(CommentBase):
     id: int
     user_id: int
     story_id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+    user_name: str
 
     class Config:
         from_attributes = True
 
-class CommentResponse(CommentInDB):
-    user_name: str
-
 class LikeCreate(BaseModel):
     story_id: int
 
-class LikeInDB(LikeCreate):
+class LikeResponse(BaseModel):
     id: int
     user_id: int
+    story_id: int
     created_at: datetime
+    likes_count: int
 
     class Config:
         from_attributes = True
@@ -42,31 +42,19 @@ class BookmarkCreate(BaseModel):
 class BookmarkUpdate(BaseModel):
     last_read_chapter: int
 
-class BookmarkInDB(BookmarkCreate):
+class BookmarkResponse(BaseModel):
     id: int
     user_id: int
+    story_id: int
     created_at: datetime
+    last_read_chapter: Optional[int] = None
+    bookmarks_count: int
 
     class Config:
         from_attributes = True
 
 class UserFollowCreate(BaseModel):
     followed_id: int
-
-class UserFollowInDB(UserFollowCreate):
-    id: int
-    follower_id: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class LikeResponse(BaseModel):
-    id: int
-    user_id: int
-    story_id: int
-    created_at: datetime
-    likes_count: int
 
 class UserFollowResponse(BaseModel):
     id: int
@@ -76,3 +64,6 @@ class UserFollowResponse(BaseModel):
     follower_name: str
     followed_name: str
     follower_count: int
+
+    class Config:
+        from_attributes = True

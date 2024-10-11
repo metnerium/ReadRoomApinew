@@ -29,7 +29,9 @@ class StoryResponse(StoryBase):
     rating: float
     views: int
     is_liked: bool
+    is_bookmarked: bool
     is_following_author: bool
+    follower_count: int
 
     class Config:
         from_attributes = True

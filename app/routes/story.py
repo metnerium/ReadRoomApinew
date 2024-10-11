@@ -31,6 +31,7 @@ async def create_story(
         likes_count=0,
         bookmarks_count=0,
         is_liked=False,
+        is_bookmarked=False,
         is_following_author=False,
         follower_count=0
     )
@@ -63,9 +64,12 @@ async def list_stories(
     result = await db.execute(query)
     stories = result.unique().scalars().all()
 
-    # Get likes and follows for the current user
+    # Get likes, bookmarks, and follows for the current user
     user_likes = await db.execute(select(Like).filter(Like.user_id == current_user.id))
     user_likes = set(like.story_id for like in user_likes.scalars().all())
+
+    user_bookmarks = await db.execute(select(Bookmark).filter(Bookmark.user_id == current_user.id))
+    user_bookmarks = set(bookmark.story_id for bookmark in user_bookmarks.scalars().all())
 
     user_follows = await db.execute(select(UserFollow).filter(UserFollow.follower_id == current_user.id))
     user_follows = set(follow.followed_id for follow in user_follows.scalars().all())
@@ -88,6 +92,7 @@ async def list_stories(
                 likes_count=len(story.likes),
                 bookmarks_count=len(story.bookmarks),
                 is_liked=story.id in user_likes,
+                is_bookmarked=story.id in user_bookmarks,
                 is_following_author=story.author_id in user_follows,
                 follower_count=follower_counts.get(story.author_id, 0)
             )
@@ -115,9 +120,12 @@ async def get_continue_reading(
     result = await db.execute(query)
     stories = result.unique().scalars().all()
 
-    # Get likes and follows for the current user
+    # Get likes, bookmarks, and follows for the current user
     user_likes = await db.execute(select(Like).filter(Like.user_id == current_user.id))
     user_likes = set(like.story_id for like in user_likes.scalars().all())
+
+    user_bookmarks = await db.execute(select(Bookmark).filter(Bookmark.user_id == current_user.id))
+    user_bookmarks = set(bookmark.story_id for bookmark in user_bookmarks.scalars().all())
 
     user_follows = await db.execute(select(UserFollow).filter(UserFollow.follower_id == current_user.id))
     user_follows = set(follow.followed_id for follow in user_follows.scalars().all())
@@ -139,6 +147,7 @@ async def get_continue_reading(
             likes_count=len(story.likes),
             bookmarks_count=len(story.bookmarks),
             is_liked=story.id in user_likes,
+            is_bookmarked=story.id in user_bookmarks,
             is_following_author=story.author_id in user_follows,
             follower_count=follower_counts.get(story.author_id, 0)
         )
@@ -173,6 +182,14 @@ async def get_story(
         )
     ) > 0
 
+    # Check if the current user has bookmarked the story
+    is_bookmarked = await db.scalar(
+        select(func.count()).select_from(Bookmark).filter(
+            Bookmark.user_id == current_user.id,
+            Bookmark.story_id == story_id
+        )
+    ) > 0
+
     # Check if the current user is following the author
     is_following_author = await db.scalar(
         select(func.count()).select_from(UserFollow).filter(
@@ -195,6 +212,7 @@ async def get_story(
         likes_count=len(story.likes),
         bookmarks_count=len(story.bookmarks),
         is_liked=is_liked,
+        is_bookmarked=is_bookmarked,
         is_following_author=is_following_author,
         follower_count=follower_count
     )
@@ -216,9 +234,12 @@ async def get_popular_stories(
     result = await db.execute(query)
     stories = result.unique().scalars().all()
 
-    # Get likes and follows for the current user
+    # Get likes, bookmarks, and follows for the current user
     user_likes = await db.execute(select(Like).filter(Like.user_id == current_user.id))
     user_likes = set(like.story_id for like in user_likes.scalars().all())
+
+    user_bookmarks = await db.execute(select(Bookmark).filter(Bookmark.user_id == current_user.id))
+    user_bookmarks = set(bookmark.story_id for bookmark in user_bookmarks.scalars().all())
 
     user_follows = await db.execute(select(UserFollow).filter(UserFollow.follower_id == current_user.id))
     user_follows = set(follow.followed_id for follow in user_follows.scalars().all())
@@ -240,6 +261,7 @@ async def get_popular_stories(
             likes_count=len(story.likes),
             bookmarks_count=len(story.bookmarks),
             is_liked=story.id in user_likes,
+            is_bookmarked=story.id in user_bookmarks,
             is_following_author=story.author_id in user_follows,
             follower_count=follower_counts.get(story.author_id, 0)
         )
@@ -274,11 +296,13 @@ async def get_my_stories(
             likes_count=len(story.likes),
             bookmarks_count=len(story.bookmarks),
             is_liked=False,  # The user can't like their own stories
+            is_bookmarked=False,  # The user's own stories are not bookmarked
             is_following_author=False,  # The user can't follow themselves
             follower_count=follower_count
         )
         for story in stories
     ]
+# ... (предыдущий код остается без изменений)
 
 @router.put("/{story_id}", response_model=StoryResponse)
 async def update_story(
@@ -318,6 +342,7 @@ async def update_story(
         likes_count=len(db_story.likes),
         bookmarks_count=len(db_story.bookmarks),
         is_liked=False,  # The user can't like their own stories
+        is_bookmarked=False,  # The user's own stories are not bookmarked
         is_following_author=False,  # The user can't follow themselves
         follower_count=follower_count
     )
