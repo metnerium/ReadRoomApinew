@@ -1,18 +1,18 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
 class ChapterBase(BaseModel):
-    title: str
-    content: str
-    chapter_number: int
+    title: str = Field(..., min_length=1, max_length=400)
+    content: str = Field(..., min_length=1)
+    chapter_number: int = Field(..., gt=0)
 
 class ChapterCreate(ChapterBase):
-    story_id: int
+    story_id: int = Field(..., gt=0)
 
 class ChapterUpdate(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    content: Optional[str] = Field(None, min_length=1)
 
 class ChapterInDB(ChapterBase):
     id: int

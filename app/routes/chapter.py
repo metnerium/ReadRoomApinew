@@ -8,8 +8,9 @@ from app.models.story import Story
 from app.models.user import User
 from app.schemas.chapter import ChapterCreate, ChapterUpdate, ChapterInDB
 from dependencies import get_current_user, get_db
-
+import logging
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.post("/", response_model=ChapterInDB)
 async def create_chapter(
@@ -17,15 +18,43 @@ async def create_chapter(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    story = await db.get(Story, chapter.story_id)
-    if not story or story.author_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Story not found or you're not the author")
+    logger.info(f"Attempting to create chapter for story_id: {chapter.story_id}")
+    try:
+        story = await db.get(Story, chapter.story_id)
+        if not story:
+            logger.warning(f"Story with id {chapter.story_id} not found")
+            raise HTTPException(status_code=404, detail="Story not found")
+        if story.author_id != current_user.id:
+            logger.warning(f"User {current_user.id} is not the author of story {chapter.story_id}")
+            raise HTTPException(status_code=403, detail="You're not the author of this story")
 
-    db_chapter = Chapter(**chapter.dict())
-    db.add(db_chapter)
-    await db.commit()
-    await db.refresh(db_chapter)
-    return db_chapter
+        # Check if chapter_number already exists for this story
+        existing_chapter = await db.execute(
+            select(Chapter).filter(
+                Chapter.story_id == chapter.story_id,
+                Chapter.chapter_number == chapter.chapter_number
+            )
+        )
+        if existing_chapter.scalar_one_or_none():
+            logger.warning(f"Chapter number {chapter.chapter_number} already exists for story {chapter.story_id}")
+            raise HTTPException(status_code=400, detail="Chapter number already exists for this story")
+
+        db_chapter = Chapter(
+            title=chapter.title,
+            content=chapter.content,
+            chapter_number=chapter.chapter_number,
+            story_id=chapter.story_id
+        )
+        db.add(db_chapter)
+        await db.commit()
+        await db.refresh(db_chapter)
+        logger.info(f"Successfully created chapter {db_chapter.id} for story {chapter.story_id}")
+        return db_chapter
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Error creating chapter: {str(e)}")
+        raise HTTPException(status_code=500, detail="An error occurred while creating the chapter")
 
 @router.get("/{chapter_id}", response_model=ChapterInDB)
 async def get_chapter(
