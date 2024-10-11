@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,7 +14,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # Подключаем роуты
 app.include_router(auth.router, tags=["Authentication"])
 app.include_router(user.router, prefix="/users", tags=["Users"])
