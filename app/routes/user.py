@@ -144,7 +144,9 @@ async def get_bookmarked_stories(
             is_liked=story.id in user_likes,
             is_bookmarked=True,  # The story is bookmarked since it's in the bookmarks list
             is_following_author=story.author_id in user_follows,
+            is_my_story=story.author_id == current_user.id,
             follower_count=follower_counts.get(story.author_id, 0)
-        )
+
+    )
         for story in stories
     ]
