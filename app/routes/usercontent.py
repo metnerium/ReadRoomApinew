@@ -13,18 +13,23 @@ from dependencies import get_current_user, get_db
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-
-@router.get("/user-stories", response_model=List[UserStoryResponse])
+@router.get("/users/{user_id}/stories", response_model=List[UserStoryResponse])
 async def get_user_stories(
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db)
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    logger.info(f"Fetching stories for user_id: {current_user.id}")
+    logger.info(f"Fetching stories for user_id: {user_id}")
     try:
+        # Check if the user exists
+        user = await db.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
         query = select(Story).options(
             joinedload(Story.likes),
             joinedload(Story.bookmarks)
-        ).filter(Story.author_id == current_user.id).order_by(desc(Story.created_at))
+        ).filter(Story.author_id == user_id).order_by(desc(Story.created_at))
 
         result = await db.execute(query)
         stories = result.unique().scalars().all()
@@ -51,7 +56,7 @@ async def get_user_stories(
                 logger.error(f"Error processing story {story.id}: {str(e)}")
                 # Optionally, you can choose to skip this story or handle the error differently
 
-        logger.info(f"Returning {len(user_stories)} stories for user {current_user.id}")
+        logger.info(f"Returning {len(user_stories)} stories for user {user_id}")
         return user_stories
     except Exception as e:
         logger.error(f"Error in get_user_stories: {str(e)}")

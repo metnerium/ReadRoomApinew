@@ -31,6 +31,7 @@ class StoryResponse(StoryBase):
     is_liked: bool
     is_bookmarked: bool
     is_following_author: bool
+    is_my_story: bool
     follower_count: int
 
     class Config:

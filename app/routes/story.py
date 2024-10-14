@@ -36,6 +36,7 @@ async def create_story(
         is_liked=False,
         is_bookmarked=False,
         is_following_author=False,
+        is_my_story=True,
         follower_count=0
     )
 
@@ -97,6 +98,7 @@ async def list_stories(
                 is_liked=story.id in user_likes,
                 is_bookmarked=story.id in user_bookmarks,
                 is_following_author=story.author_id in user_follows,
+                is_my_story=story.author_id == current_user.id,
                 follower_count=follower_counts.get(story.author_id, 0)
             )
             for story in stories
@@ -152,6 +154,7 @@ async def get_continue_reading(
             is_liked=story.id in user_likes,
             is_bookmarked=story.id in user_bookmarks,
             is_following_author=story.author_id in user_follows,
+            is_my_story=story.author_id == current_user.id,
             follower_count=follower_counts.get(story.author_id, 0)
         )
         for story in stories
@@ -217,15 +220,15 @@ async def get_story(
         is_liked=is_liked,
         is_bookmarked=is_bookmarked,
         is_following_author=is_following_author,
+        is_my_story=story.author_id == current_user.id,
         follower_count=follower_count
     )
-
 @router.get("/popular", response_model=List[StoryResponse])
 async def get_popular_stories(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    one_week_ago = datetime.utcnow() - timedelta(days=7)
+    one_week_ago = datetime.now() - timedelta(days=7)
     query = select(Story).options(
         joinedload(Story.author),
         joinedload(Story.likes),
@@ -238,19 +241,19 @@ async def get_popular_stories(
     stories = result.unique().scalars().all()
 
     # Get likes, bookmarks, and follows for the current user
-    user_likes = await db.execute(select(Like).filter(Like.user_id == current_user.id))
+    user_likes = await db.execute(select(Like.story_id).filter(Like.user_id == current_user.id))
     user_likes = set(like.story_id for like in user_likes.scalars().all())
 
-    user_bookmarks = await db.execute(select(Bookmark).filter(Bookmark.user_id == current_user.id))
+    user_bookmarks = await db.execute(select(Bookmark.story_id).filter(Bookmark.user_id == current_user.id))
     user_bookmarks = set(bookmark.story_id for bookmark in user_bookmarks.scalars().all())
 
-    user_follows = await db.execute(select(UserFollow).filter(UserFollow.follower_id == current_user.id))
+    user_follows = await db.execute(select(UserFollow.followed_id).filter(UserFollow.follower_id == current_user.id))
     user_follows = set(follow.followed_id for follow in user_follows.scalars().all())
 
     # Get follower counts for all authors
     author_ids = [story.author_id for story in stories]
     follower_counts = await db.execute(
-        select(UserFollow.followed_id, func.count(UserFollow.follower_id))
+        select(UserFollow.followed_id, func.count(UserFollow.follower_id).label('count'))
         .where(UserFollow.followed_id.in_(author_ids))
         .group_by(UserFollow.followed_id)
     )
@@ -258,7 +261,15 @@ async def get_popular_stories(
 
     return [
         StoryResponse(
-            **story.__dict__,
+            id=story.id,
+            title=story.title,
+            content=story.summary,
+            genre=story.genre,
+            created_at=story.created_at,
+            updated_at=story.updated_at,
+            views=story.views,
+            rating=story.rating,
+            author_id=story.author_id,
             author_name=story.author.pseudonym or story.author.full_name,
             author_avatar_url=story.author.avatar_url,
             likes_count=len(story.likes),
@@ -266,11 +277,11 @@ async def get_popular_stories(
             is_liked=story.id in user_likes,
             is_bookmarked=story.id in user_bookmarks,
             is_following_author=story.author_id in user_follows,
+            is_my_story=story.author_id == current_user.id,
             follower_count=follower_counts.get(story.author_id, 0)
         )
         for story in stories
     ]
-
 
 @router.put("/{story_id}", response_model=StoryResponse)
 async def update_story(
@@ -279,11 +290,8 @@ async def update_story(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(Story).options(
-        joinedload(Story.author),
-        joinedload(Story.likes),
-        joinedload(Story.bookmarks)
-    ).filter(Story.id == story_id, Story.author_id == current_user.id)
+    # Change the query to not use joinedload for this operation
+    query = select(Story).filter(Story.id == story_id, Story.author_id == current_user.id)
     result = await db.execute(query)
     db_story = result.scalar_one_or_none()
 
@@ -296,25 +304,23 @@ async def update_story(
     await db.commit()
     await db.refresh(db_story)
 
-    # Get follower count for the author
-    follower_count = await db.scalar(
-        select(func.count()).select_from(UserFollow).filter(
-            UserFollow.followed_id == current_user.id
-        )
-    )
+    # Fetch related data separately
+    likes_count = await db.scalar(select(func.count()).where(Like.story_id == story_id))
+    bookmarks_count = await db.scalar(select(func.count()).where(Bookmark.story_id == story_id))
+    follower_count = await db.scalar(select(func.count()).where(UserFollow.followed_id == current_user.id))
 
     return StoryResponse(
         **db_story.__dict__,
         author_name=current_user.pseudonym or current_user.full_name,
         author_avatar_url=current_user.avatar_url,
-        likes_count=len(db_story.likes),
-        bookmarks_count=len(db_story.bookmarks),
+        likes_count=likes_count,
+        bookmarks_count=bookmarks_count,
         is_liked=False,  # The user can't like their own stories
         is_bookmarked=False,  # The user's own stories are not bookmarked
         is_following_author=False,  # The user can't follow themselves
+        is_my_story=True,
         follower_count=follower_count
     )
-
 @router.delete("/{story_id}", status_code=204)
 async def delete_story(
     story_id: int,
