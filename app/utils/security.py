@@ -6,7 +6,7 @@ from hashlib import sha256
 from hmac import HMAC
 from urllib.parse import urlparse, parse_qsl, urlencode
 
-
+import logging
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 import jwt
@@ -21,18 +21,41 @@ from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, CLIENT_SE
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def is_valid(*, query: dict, secret: str) -> bool:
     """Check VK Apps signature"""
+    if "sign" not in query:
+        logger.error("No 'sign' parameter in the query")
+        return False
+
     vk_subset = OrderedDict(sorted(x for x in query.items() if x[0][:3] == "vk_"))
+    if not vk_subset:
+        logger.error("No VK parameters found in the query")
+        return False
+
     hash_code = b64encode(HMAC(secret.encode(), urlencode(vk_subset, doseq=True).encode(), sha256).digest())
     decoded_hash_code = hash_code.decode('utf-8')[:-1].replace('+', '-').replace('/', '_')
+
     return query["sign"] == decoded_hash_code
 
-def verify_url(url):
-    query_params = dict(parse_qsl(urlparse(url).query, keep_blank_values=True))
-    status = is_valid(query=query_params, secret=CLIENT_SECRET)
-    return (True if status else False)
+
+def verify_url(url: str) -> bool:
+    try:
+        # Разбираем строку URL напрямую
+        query_params = dict(parse_qsl(url, keep_blank_values=True))
+        logger.info(f"Parsed query params: {query_params}")
+
+        if not query_params:
+            logger.error("No query parameters found in the URL")
+            return False
+
+        status = is_valid(query=query_params, secret=CLIENT_SECRET)
+        return status
+    except Exception as e:
+        logger.error(f"Error in verify_url: {str(e)}")
+        return False
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)

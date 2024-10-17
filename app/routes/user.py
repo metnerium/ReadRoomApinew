@@ -11,7 +11,7 @@ from app.models.story import Story
 from app.models.social import UserFollow, Like
 from app.schemas.user import UserCreate, UserUpdate, UserInDB, UserProfile, Token
 from app.schemas.story import StoryResponse
-from app.utils.security import get_password_hash, create_access_token, get_current_user, is_valid
+from app.utils.security import get_password_hash, create_access_token, get_current_user, verify_url
 from dependencies import get_db
 
 router = APIRouter()
@@ -21,7 +21,7 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
     db_user = await db.scalar(select(User).filter(User.vk_id == user.vk_id))
     if db_user:
         raise HTTPException(status_code=400, detail="User already registered")
-    if is_valid(user.url):
+    if verify_url(user.url):
     # hashed_password = get_password_hash(user.password)
         db_user = User(
             # email=user.email,
