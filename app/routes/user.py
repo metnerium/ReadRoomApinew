@@ -6,38 +6,41 @@ from typing import List
 
 from sqlalchemy.orm import joinedload
 
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.models.story import Story
 from app.models.social import UserFollow, Like
 from app.schemas.user import UserCreate, UserUpdate, UserInDB, UserProfile, Token
 from app.schemas.story import StoryResponse
-from app.utils.security import get_password_hash, create_access_token, get_current_user
+from app.utils.security import get_password_hash, create_access_token, get_current_user, is_valid
 from dependencies import get_db
 
 router = APIRouter()
 
 @router.post("/register", response_model=Token)
 async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
-    db_user = await db.scalar(select(User).filter(User.email == user.email))
+    db_user = await db.scalar(select(User).filter(User.vk_id == user.vk_id))
     if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="User already registered")
+    if is_valid(user.url):
+    # hashed_password = get_password_hash(user.password)
+        db_user = User(
+            # email=user.email,
+            vk_id=user.vk_id,
+            # hashed_password=hashed_password,
+            full_name=user.full_name,
+            pseudonym=user.pseudonym,
+            bio=user.bio,
+            avatar_url=user.avatar_url,
+            role=user.role
+        )
+        db.add(db_user)
+        await db.commit()
+        await db.refresh(db_user)
 
-    hashed_password = get_password_hash(user.password)
-    db_user = User(
-        email=user.email,
-        hashed_password=hashed_password,
-        full_name=user.full_name,
-        pseudonym=user.pseudonym,
-        bio=user.bio,
-        avatar_url=user.avatar_url,
-        role=user.role
-    )
-    db.add(db_user)
-    await db.commit()
-    await db.refresh(db_user)
-
-    access_token = create_access_token(data={"sub": user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+        access_token = create_access_token(data={"sub": user.vk_id})
+        return {"access_token": access_token, "token_type": "bearer"}
+    else:
+        raise HTTPException(status_code=400, detail="User invalid")
 
 @router.get("/me", response_model=UserInDB)
 async def read_users_me(current_user: User = Depends(get_current_user)):
@@ -68,7 +71,8 @@ async def get_user_profile(user_id: int, db: AsyncSession = Depends(get_db)):
 
     return UserProfile(
         id=user.id,
-        email=user.email,
+        vk_id=user.vk_id,
+        # email=user.email,
         full_name=user.full_name,
         pseudonym=user.pseudonym,
         bio=user.bio,

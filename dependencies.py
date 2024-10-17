@@ -12,9 +12,9 @@ logger = logging.getLogger(__name__)
 async def get_current_user_dependency(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     try:
         logger.info(f"Attempting to get user with ID: {current_user.id}")
-        user = await User.get_by_email(db, current_user.email)
+        user = await User.vk_id(db, current_user.vk_id)
         if not user:
-            logger.error(f"User not found for email: {current_user.email}")
+            logger.error(f"User not found for email: {current_user.vk_id}")
             raise USER_NOT_FOUND_EXCEPTION
         logger.info(f"User found: {user.id}")
         return user

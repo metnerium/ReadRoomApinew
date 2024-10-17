@@ -1,5 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Optional
+from base64 import b64encode
+from collections import OrderedDict
+from hashlib import sha256
+from hmac import HMAC
+from urllib.parse import urlparse, parse_qsl, urlencode
+
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -11,10 +17,22 @@ from sqlalchemy.future import select
 from app.models.user import User
 from app.schemas.user import TokenData
 from database import get_db
-from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, CLIENT_SECRET
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+def is_valid(*, query: dict, secret: str) -> bool:
+    """Check VK Apps signature"""
+    vk_subset = OrderedDict(sorted(x for x in query.items() if x[0][:3] == "vk_"))
+    hash_code = b64encode(HMAC(secret.encode(), urlencode(vk_subset, doseq=True).encode(), sha256).digest())
+    decoded_hash_code = hash_code.decode('utf-8')[:-1].replace('+', '-').replace('/', '_')
+    return query["sign"] == decoded_hash_code
+
+def verify_url(url):
+    query_params = dict(parse_qsl(urlparse(url).query, keep_blank_values=True))
+    status = is_valid(query=query_params, secret=CLIENT_SECRET)
+    return (True if status else False)
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -35,17 +53,17 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 def decode_access_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
+        vk_id: int = payload.get("sub")
+        if vk_id is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-        token_data = TokenData(email=email)
+        token_data = TokenData(vk_id=vk_id)
         return token_data
     except jwt.PyJWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
     token_data = decode_access_token(token)
-    user = await db.scalar(select(User).filter(User.email == token_data.email))
+    user = await db.scalar(select(User).filter(User.vk_id == token_data.vk_id))
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user

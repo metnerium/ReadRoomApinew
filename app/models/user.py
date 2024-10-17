@@ -4,21 +4,19 @@ from sqlalchemy.sql import func
 from database import Base
 import enum
 
-class UserRole(enum.Enum):
-    READER = "reader"
-    AUTHOR = "author"
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True)
-    hashed_password = Column(String, nullable=False)
+    # email = Column(String, unique=True, index=True)
+    vk_id = Column(Integer, index=True)
+    # hashed_password = Column(String, nullable=False)
     full_name = Column(String)
     pseudonym = Column(String, unique=True, nullable=True)
     bio = Column(Text, nullable=True)
     avatar_url = Column(String, nullable=True)
-    role = Column(Enum(UserRole), default=UserRole.READER)
+    role = Column(String, default="AUTHOR")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
