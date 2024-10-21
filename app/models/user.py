@@ -1,6 +1,8 @@
 from sqlalchemy import Column, Integer, String, Enum, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+
+from app.models.content_block import Block
 from database import Base
 import enum
 

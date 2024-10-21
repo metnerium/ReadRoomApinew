@@ -29,7 +29,6 @@ class Story(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     rating = Column(Float, default=0.0)
     views = Column(Integer, default=0)
-
     author = relationship("User", back_populates="stories")
     chapters = relationship("Chapter", back_populates="story")
     comments = relationship("Comment", back_populates="story")

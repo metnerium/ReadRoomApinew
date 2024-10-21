@@ -11,4 +11,3 @@ class Block(Base):
     author_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    author = relationship("User", back_populates="stories")
