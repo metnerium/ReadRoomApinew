@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 class ChapterBase(BaseModel):
-    title: str = Field(..., min_length=1, max_length=400)
+    title: str = Field(..., min_length=1, max_length=100)
     content: str = Field(..., min_length=1)
     chapter_number: int = Field(..., gt=0)
 
@@ -11,7 +11,7 @@ class ChapterCreate(ChapterBase):
     story_id: int = Field(..., gt=0)
 
 class ChapterUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    title: Optional[str] = Field(None, min_length=1, max_length=100)
     content: Optional[str] = Field(None, min_length=1)
 
 class ChapterInDB(ChapterBase):

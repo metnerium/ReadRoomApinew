@@ -10,6 +10,9 @@ pytest
 pytest-asyncio
 httpx
 pyjwt~=2.9.0
-requests
+requests~=2.32.3
 config~=0.5.1
 pydantic~=2.9.2
+python-magic~=0.4.27
+pillow~=11.0.0
+locust~=2.32.0

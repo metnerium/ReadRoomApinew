@@ -15,5 +15,12 @@
       <jdbc-url>jdbc:postgresql://91.219.226.176:5432/db1</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
+    <data-source source="LOCAL" name="db2@79.174.88.75" uuid="ab772eed-47c2-461f-8db9-e9a850d64912">
+      <driver-ref>postgresql</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.postgresql.Driver</jdbc-driver>
+      <jdbc-url>jdbc:postgresql://79.174.88.75:15793/db2</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
   </component>
 </project>

@@ -1,5 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette import status
+from starlette.responses import JSONResponse
 
 from app.routes import auth, user, story, chapter, social, usercontent, content_block
 from database import create_tables

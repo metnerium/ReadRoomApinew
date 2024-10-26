@@ -41,7 +41,7 @@ def is_valid(*, query: dict, secret: str) -> bool:
     return query["sign"] == decoded_hash_code
 
 
-def verify_url(url: str) -> bool:
+def verify_url(url: str, vk_id: int) -> bool:
     try:
         # Разбираем строку URL напрямую
         query_params = dict(parse_qsl(url, keep_blank_values=True))
@@ -50,7 +50,8 @@ def verify_url(url: str) -> bool:
         if not query_params:
             logger.error("No query parameters found in the URL")
             return False
-
+        if query_params["vk_user_id"] != str(vk_id):
+            return False
         status = is_valid(query=query_params, secret=CLIENT_SECRET)
         return status
     except Exception as e:

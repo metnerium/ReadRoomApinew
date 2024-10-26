@@ -42,12 +42,12 @@ async def get_user_stories(
                     title=story.title,
                     summary=story.summary,
                     genre=story.genre,
-                    cover_image_url=story.cover_image_url,
+                    cover_image_url='',
                     created_at=story.created_at,
                     updated_at=story.updated_at,
-                    likes_count=len(story.likes),
-                    bookmarks_count=len(story.bookmarks),
-                    views=story.views,
+                    likes_count=0,
+                    bookmarks_count=0,
+                    views=0,
                     rating=float(story.rating) if story.rating is not None else 0.0
                 )
                 user_stories.append(user_story)
