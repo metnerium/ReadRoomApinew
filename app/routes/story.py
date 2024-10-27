@@ -6,6 +6,7 @@ from sqlalchemy import desc, func, and_, update
 from typing import List, Optional
 from datetime import datetime, timedelta
 
+from app.flood_protection import FloodProtection
 from app.models.social import Bookmark, Like, UserFollow
 from app.models.story import Story, Genre
 from app.models.user import User
@@ -14,15 +15,20 @@ from app.utils.image_security import ImageSecurityUtils
 from dependencies import get_current_user, get_db, logger
 
 router = APIRouter()
+flood_protection = FloodProtection(max_stories=5, time_window=20)
+
 
 @router.post("/", response_model=StoryResponse)
 async def create_story(
-    story: StoryCreate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        story: StoryCreate,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
-    """Create a new story with secure image handling."""
+    """Create a new story with flood protection and secure image handling."""
     try:
+        # Check flood protection
+        await flood_protection.check_rate_limit(current_user.id, db)
+
         story_data = story.dict()
 
         # Handle cover image if provided
@@ -54,11 +60,12 @@ async def create_story(
             follower_count=0
         )
 
+    except HTTPException as http_exc:
+        await db.rollback()
+        raise http_exc
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error in create_story: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to create story")
-
 @router.get("/", response_model=StoryListResponse)
 async def list_stories(
     skip: int = Query(0, ge=0),

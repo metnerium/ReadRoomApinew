@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
 from typing import List
+
+from app.chapter_flood_protection import ChapterFloodProtection
 from app.models.chapter import Chapter
 from app.models.story import Story
 from app.models.user import User
@@ -12,6 +14,7 @@ import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+flood_protection = ChapterFloodProtection(max_chapters=10, time_window=20)
 
 @router.post("/", response_model=ChapterInDB)
 async def create_chapter(
@@ -20,6 +23,7 @@ async def create_chapter(
     db: AsyncSession = Depends(get_db)
 ):
     try:
+        # Verify story exists and user is the author
         query = select(Story).filter(Story.id == chapter.story_id)
         result = await db.execute(query)
         story = result.scalar_one_or_none()
@@ -31,15 +35,26 @@ async def create_chapter(
             logger.warning(f"User {current_user.id} is not the author of story {chapter.story_id}")
             raise HTTPException(status_code=403, detail="You're not the author of this story")
 
+        # Check flood protection
+        await flood_protection.check_rate_limit(
+            story_id=chapter.story_id,
+            user_id=current_user.id,
+            db=db
+        )
+
+        # Create chapter
         db_chapter = Chapter(**chapter.dict())
         db.add(db_chapter)
         await db.commit()
         await db.refresh(db_chapter)
         logger.info(f"Successfully created chapter {db_chapter.id} for story {chapter.story_id}")
         return db_chapter
+
     except HTTPException as http_exc:
+        await db.rollback()
         raise http_exc
     except Exception as e:
+        await db.rollback()
         logger.error(f"Error creating chapter: {str(e)}")
         raise HTTPException(status_code=500, detail="An error occurred while creating the chapter")
 

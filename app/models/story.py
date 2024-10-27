@@ -21,7 +21,7 @@ class Story(Base):
     __tablename__ = "stories"
 
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(100), nullable=False, index=True)
+    title = Column(String(50), nullable=False, index=True)
     summary = Column(Text, nullable=True)
     genre = Column(Enum(Genre), nullable=False)
     cover_image_url = Column(String, nullable=True)

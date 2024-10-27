@@ -8,7 +8,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     vk_id = Column(Integer, unique=True, index=True)
-    full_name = Column(String(50), nullable=False)
+    full_name = Column(String(30), nullable=False)
     pseudonym = Column(String(30), unique=True, nullable=True)
     bio = Column(Text, nullable=True)
     avatar_url = Column(String, nullable=True)
