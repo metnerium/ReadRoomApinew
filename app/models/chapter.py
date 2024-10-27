@@ -15,6 +15,6 @@ class Chapter(Base):
     story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False)
     chapter_number = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
     story = relationship("Story", back_populates="chapters")

@@ -22,16 +22,15 @@ class Story(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(100), nullable=False, index=True)
-    summary = Column(Text(500), nullable=True)
+    summary = Column(Text, nullable=True)
     genre = Column(Enum(Genre), nullable=False)
     cover_image_url = Column(String, nullable=True)
     author_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)  # Добавлен nullable=True
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
     rating = Column(Float, default=0.0)
     views = Column(Integer, default=0)
 
-    # Добавлены каскадные удаления для связанных сущностей
     author = relationship("User", back_populates="stories")
     chapters = relationship("Chapter", back_populates="story", cascade="all, delete-orphan")
     likes = relationship("Like", back_populates="story", cascade="all, delete-orphan")
