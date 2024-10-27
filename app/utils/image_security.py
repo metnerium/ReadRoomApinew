@@ -30,7 +30,7 @@ class ImageSecurityUtils:
     MAX_FILE_SIZE = 5 * 1024 * 1024
 
     # Maximum image dimensions
-    MAX_IMAGE_DIMENSIONS = (2048, 2048)
+    MAX_IMAGE_DIMENSIONS = (8192, 8192)
 
     # Yandex Cloud S3 configuration
     S3_CONFIG = {
@@ -152,9 +152,6 @@ class ImageSecurityUtils:
             # Validate image using PIL
             with Image.open(io.BytesIO(image_data)) as img:
                 # Check dimensions
-                if img.size[0] > cls.MAX_IMAGE_DIMENSIONS[0] or \
-                        img.size[1] > cls.MAX_IMAGE_DIMENSIONS[1]:
-                    raise HTTPException(status_code=400, detail="Image dimensions too large")
 
                 # Optimize image
                 output = io.BytesIO()
