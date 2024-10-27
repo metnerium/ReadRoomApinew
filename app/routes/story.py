@@ -7,7 +7,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from app.flood_protection import FloodProtection
-from app.models.social import Bookmark, Like, UserFollow
+from app.models.social import Bookmark, Like, UserFollow, StoryView
 from app.models.story import Story, Genre
 from app.models.user import User
 from app.schemas.story import StoryCreate, StoryUpdate, StoryResponse, StoryListResponse
@@ -177,13 +177,14 @@ async def list_stories(
         logger.error(f"Error in list_stories: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch stories")
 
+
 @router.get("/{story_id}", response_model=StoryResponse)
 async def get_story(
-    story_id: int,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        story_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
-    """Get a single story by ID with atomic view counter update."""
+    """Get a single story by ID with unique view counter per user."""
     try:
         # Fetch story with related data
         query = select(Story).options(
@@ -198,13 +199,35 @@ async def get_story(
         if not story:
             raise HTTPException(status_code=404, detail="Story not found")
 
-        # Atomically update views
-        await db.execute(
-            update(Story)
-            .where(Story.id == story_id)
-            .values(views=Story.views + 1)
+        # Check if user has already viewed this story
+        existing_view = await db.scalar(
+            select(func.count())
+            .select_from(StoryView)
+            .filter(
+                StoryView.story_id == story_id,
+                StoryView.user_id == current_user.id
+            )
         )
-        await db.commit()
+
+        # If no existing view, create one and update story view count
+        if not existing_view:
+            try:
+                new_view = StoryView(
+                    story_id=story_id,
+                    user_id=current_user.id
+                )
+                db.add(new_view)
+
+                # Update story views count
+                await db.execute(
+                    update(Story)
+                    .where(Story.id == story_id)
+                    .values(views=Story.views + 1)
+                )
+                await db.commit()
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Error creating view: {str(e)}")
 
         # Get user interactions
         is_liked = await db.scalar(
@@ -252,7 +275,6 @@ async def get_story(
     except Exception as e:
         logger.error(f"Error in get_story: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch story")
-
 @router.put("/{story_id}", response_model=StoryResponse)
 async def update_story(
     story_id: int,

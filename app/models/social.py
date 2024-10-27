@@ -50,3 +50,17 @@ class UserFollow(Base):
 
     follower = relationship("User", foreign_keys=[follower_id], back_populates="following")
     followed = relationship("User", foreign_keys=[followed_id], back_populates="followers")
+
+
+class StoryView(Base):
+    __tablename__ = "story_views"
+
+    id = Column(Integer, primary_key=True, index=True)
+    story_id = Column(Integer, ForeignKey("stories.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    viewed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Ensure one view per user per story
+    __table_args__ = (
+        UniqueConstraint('story_id', 'user_id', name='uix_story_user_view'),
+    )
