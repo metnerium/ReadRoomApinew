@@ -19,7 +19,7 @@ app.add_middleware(
 # Подключаем роуты
 app.include_router(auth.router, tags=["Authentication"])
 app.include_router(user.router, prefix="/users", tags=["Users"])
-app.include_router(story.router, prefix="/stories", tags=["Stories"])
+app.include_router(story.router, prefix="/", tags=["Stories"])
 app.include_router(chapter.router, prefix="/chapters", tags=["Chapters"])
 app.include_router(social.router, prefix="/social", tags=["Social"])
 app.include_router(content_block.router, prefix="/block", tags=["block"])
