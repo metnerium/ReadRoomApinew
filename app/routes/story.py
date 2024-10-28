@@ -19,7 +19,7 @@ from dependencies import get_current_user, get_db, logger
 router = APIRouter()
 flood_protection = FloodProtection(max_stories=5, time_window=20)
 
-@router.post("/stories", response_model=StoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=StoryResponse, status_code=status.HTTP_201_CREATED)
 async def create_story(
     story: StoryCreate,
     current_user: User = Depends(get_current_user),
@@ -93,7 +93,7 @@ async def create_story(
             detail="Failed to create story"
         )
 
-@router.get("/stories", response_model=StoryListResponse)
+@router.get("/", response_model=StoryListResponse)
 async def list_stories(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -207,7 +207,7 @@ async def list_stories(
             detail="Failed to fetch stories"
         )
 
-@router.get("/stories/{story_id}", response_model=StoryResponse)
+@router.get("/{story_id}", response_model=StoryResponse)
 async def get_story(
     story_id: int,
     current_user: User = Depends(get_current_user),
@@ -297,7 +297,7 @@ async def get_story(
             detail="Failed to fetch story"
         )
 
-@router.put("/stories/{story_id}", response_model=StoryResponse)
+@router.put("/{story_id}", response_model=StoryResponse)
 async def update_story(
     story_id: int,
     story_update: StoryUpdate,
@@ -398,7 +398,7 @@ async def update_story(
             detail="Failed to update story"
         )
 
-@router.delete("/stories/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_story(
     story_id: int,
     current_user: User = Depends(get_current_user),
