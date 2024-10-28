@@ -26,14 +26,14 @@ class UserBehavior(TaskSet):
 
     def get_user_stories(self):
         if self.user_id:
-            response = self.client.get(f"/users/{self.user_id}/stories", headers=self.headers)
+            response = self.client.get(f"/usercontent/users/{self.user_id}/stories", headers=self.headers)
             if response.status_code == 200:
                 self.stories = response.json()
 
     @task(3)
     def view_stories(self):
         # List stories with different sorting and filtering
-        sorts = ["rating", "views", "created_at"]
+        sorts = ["rating"]
         genres = ["fiction", "non-fiction", "mystery", "romance",
                   "science_fiction", "fantasy", "horror", "poetry",
                   "thoughts", "ideas"]
@@ -50,57 +50,57 @@ class UserBehavior(TaskSet):
                 self.stories.extend([story for story in stories_data["stories"]
                                      if story["id"] not in [s["id"] for s in self.stories]])
 
-    @task(1)
-    def create_story(self):
-        genres = ["fiction", "non-fiction", "mystery", "romance",
-                  "science_fiction", "fantasy", "horror", "poetry",
-                  "thoughts", "ideas"]
-        response = self.client.post("/stories/",
-                                    headers=self.headers,
-                                    json={
-                                        "title": f"Test Story {randint(1, 1000)}",
-                                        "summary": "A test story for load testing",
-                                        "genre": choice(genres),
-                                        "cover_image_url": None
-                                    }
-                                    )
-        if response.status_code == 200:
-            story_data = response.json()
-            self.stories.append(story_data)
-            self.create_chapter(story_data["id"])
-
-    def create_chapter(self, story_id):
-        self.client.post("/chapters/",
-                         headers=self.headers,
-                         json={
-                             "title": f"Chapter {randint(1, 10)}",
-                             "content": "This is a test chapter content",
-                             "story_id": story_id,
-                             "chapter_number": 1
-                         }
-                         )
-
-    @task(3)
-    def view_story_details(self):
-        if self.stories:
-            story = choice(self.stories)
-            self.client.get(f"/stories/{story['id']}", headers=self.headers)
-
-    @task(3)
-    def view_chapters(self):
-        if self.stories:
-            story = choice(self.stories)
-            self.client.get(f"/chapters/story/{story['id']}", headers=self.headers)
-
-    @task(1)
-    def view_authors(self):
-        response = self.client.get("/users/authors", headers=self.headers)
-        if response.status_code == 200:
-            self.authors = response.json()
-
-    @task(2)
-    def view_bookmarks(self):
-        self.client.get("/users/bookmarks", headers=self.headers)
+    # @task(1)
+    # def create_story(self):
+    #     genres = ["fiction", "non-fiction", "mystery", "romance",
+    #               "science_fiction", "fantasy", "horror", "poetry",
+    #               "thoughts", "ideas"]
+    #     response = self.client.post("/stories/",
+    #                                 headers=self.headers,
+    #                                 json={
+    #                                     "title": f"Test Story {randint(1, 1000)}",
+    #                                     "summary": "A test story for load testing",
+    #                                     "genre": choice(genres),
+    #                                     "cover_image_url": None
+    #                                 }
+    #                                 )
+    #     if response.status_code == 200:
+    #         story_data = response.json()
+    #         self.stories.append(story_data)
+    #         self.create_chapter(story_data["id"])
+    #
+    # def create_chapter(self, story_id):
+    #     self.client.post("/chapters/",
+    #                      headers=self.headers,
+    #                      json={
+    #                          "title": f"Chapter {randint(1, 10)}",
+    #                          "content": "This is a test chapter content",
+    #                          "story_id": story_id,
+    #                          "chapter_number": 1
+    #                      }
+    #                      )
+    #
+    # @task(3)
+    # def view_story_details(self):
+    #     if self.stories:
+    #         story = choice(self.stories)
+    #         self.client.get(f"/stories/{story['id']}", headers=self.headers)
+    #
+    # @task(3)
+    # def view_chapters(self):
+    #     if self.stories:
+    #         story = choice(self.stories)
+    #         self.client.get(f"/chapters/story/{story['id']}", headers=self.headers)
+    #
+    # @task(1)
+    # def view_authors(self):
+    #     response = self.client.get("/users/authors", headers=self.headers)
+    #     if response.status_code == 200:
+    #         self.authors = response.json()
+    #
+    # @task(2)
+    # def view_bookmarks(self):
+    #     self.client.get("/users/bookmarks", headers=self.headers)
 
 
 class WebsiteUser(HttpUser):

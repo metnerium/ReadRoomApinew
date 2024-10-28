@@ -6,6 +6,8 @@ from sqlalchemy import func, and_
 from typing import List
 import asyncio
 
+from starlette import status
+
 from app.models.user import User
 from app.models.story import Story
 from app.models.social import UserFollow, Like, Bookmark
@@ -28,7 +30,7 @@ async def update_user_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update current user profile with secure image handling."""
+    """Update current user profile with secure image handling and length validation."""
     try:
         update_data = user_update.dict(exclude_unset=True)
 
@@ -42,6 +44,31 @@ async def update_user_me(
                 logger.error(f"Avatar upload failed: {str(e)}")
                 raise
 
+        # Additional validation checks (belt and suspenders approach)
+        if 'full_name' in update_data:
+            if len(update_data['full_name']) < 3:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="Full name must be at least 3 characters long"
+                )
+            if len(update_data['full_name']) > 30:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="Full name must not exceed 30 characters"
+                )
+
+        if 'pseudonym' in update_data:
+            if len(update_data['pseudonym']) < 3:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="Pseudonym must be at least 3 characters long"
+                )
+            if len(update_data['pseudonym']) > 30:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="Pseudonym must not exceed 30 characters"
+                )
+
         # Update user fields
         for field, value in update_data.items():
             setattr(current_user, field, value)
@@ -50,12 +77,22 @@ async def update_user_me(
         await db.refresh(current_user)
         return current_user
 
+    except ValueError as ve:
+        # Handle Pydantic validation errors
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(ve)
+        )
     except HTTPException:
         raise
     except Exception as e:
         await db.rollback()
         logger.error(f"Error in update_user_me: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to update user profile")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update user profile"
+        )
+
 
 @router.post("/register", response_model=Token)
 async def register_user(
