@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
-from sqlalchemy import desc, func, and_, update
+from sqlalchemy import desc, func, and_, update, distinct
 from typing import List, Optional
 from datetime import datetime, timedelta
 
@@ -297,14 +297,14 @@ async def get_story(
             detail="Failed to fetch story"
         )
 
+
 @router.put("/{story_id}", response_model=StoryResponse)
 async def update_story(
-    story_id: int,
-    story_update: StoryUpdate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+        story_id: int,
+        story_update: StoryUpdate,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
 ):
-    """Update a story with validation and secure image handling."""
     try:
         # Check if user is active
         if not current_user.is_active:
@@ -313,10 +313,13 @@ async def update_story(
                 detail="Your account is not active"
             )
 
-        # Fetch story with verification
-        query = select(Story).filter(Story.id == story_id)
+        # Fetch story with related data
+        query = select(Story).options(
+            joinedload(Story.likes),
+            joinedload(Story.bookmarks)
+        ).filter(Story.id == story_id)
         result = await db.execute(query)
-        story = result.scalar_one_or_none()
+        story = result.unique().scalar_one_or_none()
 
         if not story:
             raise HTTPException(
@@ -359,20 +362,29 @@ async def update_story(
                 )
 
         # Update story
-        for field, value in update_data.items():
-            setattr(story, field, value)
-
-        await db.commit()
-        await db.refresh(story)
-
-        # Get current counts
-        likes_count = len(story.likes)
-        bookmarks_count = len(story.bookmarks)
-        follower_count = await db.scalar(
-            select(func.count())
-            .select_from(UserFollow)
-            .filter(UserFollow.followed_id == current_user.id)
+        await db.execute(
+            update(Story)
+            .where(Story.id == story_id)
+            .values(**update_data)
         )
+        await db.commit()
+
+        # Fetch updated story with counts
+        result = await db.execute(
+            select(
+                Story,
+                func.count(distinct(Like.id)).label('likes_count'),
+                func.count(distinct(Bookmark.id)).label('bookmarks_count'),
+                func.count(distinct(UserFollow.id)).label('follower_count')
+            )
+            .outerjoin(Like, Like.story_id == Story.id)
+            .outerjoin(Bookmark, Bookmark.story_id == Story.id)
+            .outerjoin(UserFollow, UserFollow.followed_id == Story.author_id)
+            .where(Story.id == story_id)
+            .group_by(Story.id)
+        )
+
+        story, likes_count, bookmarks_count, follower_count = result.first()
 
         return StoryResponse(
             **story.__dict__,
